@@ -205,7 +205,7 @@ fn keygen_t_n_parties(
         })
         .collect();
 
-    for (vss_scheme, secret_shares, index) in vss_result {
+    for (vss_scheme, secret_shares, index, _) in vss_result {
         vss_scheme_vec.push(vss_scheme);
         secret_shares_vec.push(secret_shares); // cannot unzip
         index_vec.push(index as u16);
