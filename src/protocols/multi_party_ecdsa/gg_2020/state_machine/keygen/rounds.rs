@@ -157,6 +157,8 @@ impl Round2 {
             party_i: self.party_i,
             t: self.t,
             n: self.n,
+
+            e: vss_result.3,
         })
     }
     pub fn is_expensive(&self) -> bool {
@@ -179,6 +181,8 @@ pub struct Round3 {
     party_i: u16,
     t: u16,
     n: u16,
+
+    e: BigInt,
 }
 
 impl Round3 {
@@ -243,6 +247,8 @@ impl Round3 {
             party_i: self.party_i,
             t: self.t,
             n: self.n,
+
+            e: self.e,
         })
     }
     pub fn is_expensive(&self) -> bool {
@@ -264,6 +270,8 @@ pub struct Round4 {
     party_i: u16,
     t: u16,
     n: u16,
+
+    e: BigInt,
 }
 
 impl Round4 {
@@ -314,6 +322,8 @@ impl Round4 {
             i: self.party_i,
             t: self.t,
             n: self.n,
+
+            e: self.e,
         };
 
         Ok(local_key)
@@ -339,6 +349,7 @@ pub struct LocalKey<E: Curve> {
     pub i: u16,
     pub t: u16,
     pub n: u16,
+    pub e: BigInt,
 }
 
 impl LocalKey<Secp256k1> {

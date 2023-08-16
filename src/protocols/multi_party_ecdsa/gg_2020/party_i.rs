@@ -27,7 +27,7 @@ use curv::cryptographic_primitives::proofs::sigma_correct_homomorphic_elgamal_en
 use curv::cryptographic_primitives::proofs::sigma_dlog::DLogProof;
 use curv::elliptic::curves::{secp256_k1::Secp256k1, Curve, Point, Scalar};
 use curv::BigInt;
-use sha2::Sha256;
+use sha2::{Sha256, Digest};
 
 use crate::protocols::multi_party_ecdsa::gg_2018::VerifiableSS;
 use crate::Error::{self, InvalidSig, Phase5BadSum, Phase6Error};
@@ -84,12 +84,15 @@ pub struct KeyGenBroadcastMessage1 {
     pub correct_key_proof: NiCorrectKeyProof,
     pub composite_dlog_proof_base_h1: CompositeDLogProof,
     pub composite_dlog_proof_base_h2: CompositeDLogProof,
+    pub chain_code_commitment: BigInt,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KeyGenDecommitMessage1 {
     pub blind_factor: BigInt,
     pub y_i: Point<Secp256k1>,
+    pub chain_code_blind_factor: BigInt,
+    pub chain_code_entropy: BigInt,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -222,6 +225,9 @@ impl Keys {
         let blind_factor = BigInt::sample(SECURITY);
         let correct_key_proof = NiCorrectKeyProof::proof(&self.dk, None);
 
+        let chain_code_blind_factor = BigInt::sample(SECURITY);
+        let chain_code_entropy = BigInt::sample(SECURITY);
+
         let dlog_statement_base_h1 = DLogStatement {
             N: self.N_tilde.clone(),
             g: self.h1.clone(),
@@ -242,6 +248,10 @@ impl Keys {
             &BigInt::from_bytes(self.y_i.to_bytes(true).as_ref()),
             &blind_factor,
         );
+        let chain_code_commitment = HashCommitment::<Sha256>::create_commitment_with_user_defined_randomness(
+            &BigInt::from_bytes(chain_code_entropy.to_bytes().as_ref()),
+            &chain_code_blind_factor,
+        );
         let bcm1 = KeyGenBroadcastMessage1 {
             e: self.ek.clone(),
             dlog_statement: dlog_statement_base_h1,
@@ -249,10 +259,13 @@ impl Keys {
             correct_key_proof,
             composite_dlog_proof_base_h1,
             composite_dlog_proof_base_h2,
+            chain_code_commitment,            
         };
         let decom1 = KeyGenDecommitMessage1 {
             blind_factor,
             y_i: self.y_i.clone(),
+            chain_code_blind_factor,
+            chain_code_entropy,
         };
         (bcm1, decom1)
     }
@@ -262,7 +275,7 @@ impl Keys {
         params: &Parameters,
         decom_vec: &[KeyGenDecommitMessage1],
         bc1_vec: &[KeyGenBroadcastMessage1],
-    ) -> Result<(VerifiableSS<Secp256k1>, Vec<Scalar<Secp256k1>>, usize), ErrorType> {
+    ) -> Result<(VerifiableSS<Secp256k1>, Vec<Scalar<Secp256k1>>, usize, BigInt), ErrorType> {
         let mut bad_actors_vec = Vec::new();
         // test length:
         assert_eq!(decom_vec.len(), usize::from(params.share_count));
@@ -332,6 +345,10 @@ impl Keys {
                     .composite_dlog_proof_base_h2
                     .verify(&dlog_statement_base_h2)
                     .is_ok();
+                let test_res_9 = HashCommitment::<Sha256>::create_commitment_with_user_defined_randomness(
+                    &BigInt::from_bytes(&decom_vec[i].chain_code_entropy.to_bytes().as_ref()),
+                    &decom_vec[i].chain_code_blind_factor,
+                ) == bc1_vec[i].chain_code_commitment;                
                 log::info!("MP-ECDSA : Round 2 : test_res_8 {:?}", test_res_8);
 
                 let test_res = test_res_1
@@ -341,7 +358,8 @@ impl Keys {
                     && test_res_5
                     && test_res_6
                     && test_res_7
-                    && test_res_8;
+                    && test_res_8
+                    && test_res_9;
 
                 if !test_res {
                     bad_actors_vec.push(i);
@@ -361,7 +379,14 @@ impl Keys {
         let (vss_scheme, secret_shares) =
             VerifiableSS::share(params.threshold, params.share_count, &self.u_i);
         if correct_key_correct_decom_all {
-            Ok((vss_scheme, secret_shares.to_vec(), self.party_index))
+            let mut hasher = Sha256::new();
+            let mut sum = 0;
+            for i in 0..decom_vec.len() {
+                sum += decom_vec[i].y_i.to_bytes(true).len();
+            }
+            hasher.update(sum.to_string());
+            let e = BigInt::from_bytes(hasher.finalize().as_ref());
+            Ok((vss_scheme, secret_shares.to_vec(), self.party_index, e))
         } else {
             Err(err_type)
         }
